@@ -1,15 +1,20 @@
 from __future__ import annotations
+import json
+import pickle
+import numpy as np
+import os
 
 import argparse
-import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-import joblib
 import networkx as nx
 import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sentence_transformers import SentenceTransformer
+from neo4j import GraphDatabase
+import os
+from dotenv import load_dotenv
 
 
 @dataclass
@@ -185,55 +190,77 @@ def build_graph_and_documents(data_root: Path) -> tuple[nx.MultiDiGraph, list[Do
 	return graph, docs
 
 
-def persist_index(output_dir: Path, graph: nx.MultiDiGraph, docs: list[Document]) -> None:
-	output_dir.mkdir(parents=True, exist_ok=True)
+def store_embeddings_in_neo4j(docs: list[Document], embedding_dim: int = 384):
+	"""
+	Store documents as nodes in Neo4j, using node_type as label, and auto-create vector index per label.
+	"""
+	load_dotenv()
+	uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+	user = os.getenv("NEO4J_USER", "neo4j")
+	password = os.getenv("NEO4J_PASSWORD", "password")
 
-	graph_path = output_dir / "deduct_kg_graph.joblib"
-	joblib.dump(graph, graph_path)
-	stale_graphml = output_dir / "deduct_kg.graphml"
-	if stale_graphml.exists():
-		stale_graphml.unlink()
 
-	corpus = [d.text for d in docs]
-	vectorizer = TfidfVectorizer(
-		lowercase=True,
-		stop_words="english",
-		ngram_range=(1, 2),
-		max_features=250_000,
-	)
-	matrix = vectorizer.fit_transform(corpus)
+	# --- Fallback: Load or compute embeddings ---
+	if os.path.exists("docs.pkl") and os.path.exists("embeddings.npy"):
+		print("Loading cached docs and embeddings...")
+		with open("docs.pkl", "rb") as f:
+			docs = pickle.load(f)
+		embeddings = np.load("embeddings.npy")
+	else:
+		model = SentenceTransformer('all-MiniLM-L6-v2')
+		texts = [d.text for d in docs]
+		embeddings = model.encode(texts, show_progress_bar=True)
+		# Save for resume
+		with open("docs.pkl", "wb") as f:
+			pickle.dump(docs, f)
+		np.save("embeddings.npy", embeddings)
 
-	index_obj = {
-		"vectorizer": vectorizer,
-		"matrix": matrix,
-		"documents": [asdict(d) for d in docs],
-	}
-	joblib.dump(index_obj, output_dir / "tfidf_index.joblib")
+	# Group docs by label
+	label_to_docs = {}
+	for doc, emb in zip(docs, embeddings):
+		label = doc.metadata.get("node_type", "Generic")
+		if not label.isidentifier():
+			label = "Generic"
+		label_to_docs.setdefault(label, []).append((doc, emb))
 
-	stats = {
-		"num_nodes": graph.number_of_nodes(),
-		"num_edges": graph.number_of_edges(),
-		"node_type_count": graph.graph.get("node_type_count", {}),
-		"relation_count": graph.graph.get("relation_count", {}),
-		"num_documents": len(docs),
-	}
-	(output_dir / "stats.json").write_text(json.dumps(stats, indent=2), encoding="utf-8")
+	driver = GraphDatabase.driver(uri, auth=(user, password))
+	with driver.session() as session:
+		for label, doc_emb_list in label_to_docs.items():
+			# Upsert nodes
+			for doc, emb in doc_emb_list:
+				session.run(
+					f"MERGE (n:{label} {{doc_id: $doc_id}}) SET n.text = $text, n.embedding = $embedding, n.kind = $kind, n.metadata = $metadata",
+					doc_id=doc.doc_id,
+					text=doc.text,
+					embedding=emb.tolist(),
+					kind=doc.kind,
+					metadata=json.dumps(doc.metadata)  # Serialize metadata to JSON string
+				)
+			# Create vector index if not exists (Neo4j Aura/5.x+)
+			index_name = f"{label.lower()}_embedding_index"
+			cypher_check = f"SHOW INDEXES YIELD name WHERE name = '{index_name}' RETURN count(*) AS count"
+			exists = session.run(cypher_check).single()["count"]
+			if not exists:
+				cypher_create = (
+					f"CREATE VECTOR INDEX {index_name} FOR (n:{label}) ON (n.embedding) "
+					f"OPTIONS {{indexConfig: {{`vector.dimensions`: {embedding_dim}, `vector.similarity_function`: 'cosine'}}}}"
+				)
+				session.run(cypher_create)
+				print(f"Created vector index: {index_name} for label: {label}")
+	driver.close()
+
 
 
 def main() -> None:
-	parser = argparse.ArgumentParser(description="Build Graph RAG artifacts from DEDuCTv3.0 TSV files")
+	parser = argparse.ArgumentParser(description="Build Graph RAG artifacts from DEDuCTv3.0 TSV files and store embeddings in Neo4j with automatic label and index management.")
 	parser.add_argument("--data-root", type=Path, default=Path("."), help="Path containing Supporting_Data/DEDuCT_KG/")
-	parser.add_argument("--output-dir", type=Path, default=Path("artifacts"), help="Directory for graph and index artifacts")
+	parser.add_argument("--embedding-dim", type=int, default=384, help="Embedding dimension (default 384 for all-MiniLM-L6-v2)")
 	args = parser.parse_args()
 
 	graph, docs = build_graph_and_documents(args.data_root)
-	persist_index(args.output_dir, graph, docs)
+	store_embeddings_in_neo4j(docs, embedding_dim=args.embedding_dim)
 
-	print("Build complete")
-	print(f"Nodes: {graph.number_of_nodes()}")
-	print(f"Edges: {graph.number_of_edges()}")
-	print(f"Documents: {len(docs)}")
-	print(f"Artifacts: {args.output_dir.resolve()}")
+	print("Embeddings stored in Neo4j with automatic node labels and vector indexes.")
 
 
 if __name__ == "__main__":
