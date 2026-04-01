@@ -79,7 +79,11 @@ Ask complex graph-traversal questions such as:
 
 **GraphRAG Architecture & Codebase Author:**
 
-- Rohit B K
+- [Rohit B K](https://github.com/hitrohitro)
+
+**Contributor:**
+
+- [Nikhil Chivukula](https://github.com/NikC99)
 
 **Data Source & Original Authors:**
 The toxicology data and graph structure are the work of the Computational Biology Group at IMSc. Please cite the following preprint for the original DEDuCT 3.0 resource:
