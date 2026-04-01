@@ -77,15 +77,19 @@ Ask complex graph-traversal questions such as:
 
 ## Credits & Acknowledgements
 
-**GraphRAG Architecture & Codebase Author:**
+**GraphRAG Architecture & Codebase:**
 
-- [Rohit B K](https://github.com/hitrohitro)
-
-**Contributor:**
-
-- [Nikhil Chivukula](https://github.com/NikC99)
+- [Rohit B K](https://github.com/hitrohitro) (developed independently as a proof-of-concept for research internship applications)
 
 **Data Source & Original Authors:**
-The toxicology data and graph structure are the work of the Computational Biology Group at IMSc. Please cite the following preprint for the original DEDuCT 3.0 resource:
+The toxicology data and graph structure were developed by the Computational Biology Group at IMSc. The original DEDuCT 3.0 resource and its datasets were created by:
+
+- [Nikhil Chivukula](https://github.com/NikC99)
+- Shrish Vashishth
+- Pavithra Kandasamy
+- Shreyes Rajan Madgaonkar
+- Areejit Samal\* (corresponding author)
+
+Please cite the following preprint for the original DEDuCT 3.0 resource:
 
 Nikhil Chivukula, Shrish Vashishth, Pavithra Kandasamy, Shreyes Rajan Madgaonkar, Areejit Samal\*, DEDuCT 3.0: An enhanced and expanded FAIR-compliant resource and toxicology knowledge graph for endocrine disrupting chemicals. bioRxiv 2026.01.23.701267; doi: https://doi.org/10.64898/2026.01.23.701267
