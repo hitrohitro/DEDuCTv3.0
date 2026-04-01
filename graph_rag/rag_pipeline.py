@@ -232,13 +232,14 @@ class GraphRAG:
 			client = Groq(api_key=groq_key)
 			system_prompt = (
 				"You are a biomedical knowledge graph assistant. "
-				"Answer using only the provided retrieval context. "
-				"If evidence is insufficient, clearly say so."
+				"Answer graph-related questions using ONLY the provided retrieval context. "
+				"If the question is just a general greeting or generic, you may answer normally."
 			)
 			user_prompt = (
 				f"Question: {query}\n\n"
 				f"Retrieved context:\n{context_blob}\n\n"
-				"Provide a concise answer with a short evidence section citing [index] items."
+				"Provide a concise answer with a short evidence section citing [index] items. "
+				"If the question is generic or unrelated to the context, answer it naturally without an evidence section."
 			)
 			response = client.chat.completions.create(
 				model=model,
